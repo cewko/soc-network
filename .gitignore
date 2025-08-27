@@ -207,3 +207,6 @@ marimo/_lsp/
 __marimo__/
 
 media/
+
+cert.crt
+cert.key
