@@ -1,0 +1,1 @@
+(function(){var s=document.createElement('script');s.src='//127.0.0.1:8000/static/js/bookmarklet.js?r='+Date.now();document.body.appendChild(s);})();
