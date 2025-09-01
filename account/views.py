@@ -11,6 +11,7 @@ from .forms import (
     ProfileEditForm
 )
 from actions.utils import create_action
+from actions.models import Action
 from .models import Profile, Contact
 
 
@@ -19,8 +20,22 @@ User = get_user_model()
 
 @login_required
 def dashboard(request):
+    # display all actions by default
+    actions = Action.objects.exclude(user=request.user)
+    following_ids = request.user.following.values_list(
+        "id", flat=True
+    )
+
+    if following_ids:
+        # if user is following others, retrieve only their actions
+        actions = actions.filter(user_id__in=following_ids)
+    actions = actions.select_related(
+        "user", "user__profile"
+        ).prefetch_related("target")[:10]
+
     return render(
-        request, "account/dashboard.html", {"section": "dashboard"}
+        request, "account/dashboard.html", 
+        {"section": "dashboard", "actions": actions}
     )
 
 
