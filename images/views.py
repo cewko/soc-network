@@ -4,7 +4,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponse
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.views.decorators.http import require_POST
-from action.utils import create_action
+from actions.utils import create_action
 from .forms import ImageCreateForm
 from .models import Image
 
