@@ -49,7 +49,8 @@ INSTALLED_APPS = [
     "django_extensions",
     "easy_thumbnails",
 
-    "images.apps.ImagesConfig"
+    "images.apps.ImagesConfig",
+    "actions.apps.ActionsConfig"
 ]
 
 MIDDLEWARE = [
