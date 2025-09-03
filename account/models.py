@@ -12,7 +12,8 @@ class Profile(models.Model):
     date_of_birth = models.DateField(blank=True, null=True)
     photo = models.ImageField(
         upload_to="users/%Y/%m/%d/",
-        blank=True
+        blank=True,
+        default="users/default_profile_picture.png"
     )
 
     def __str__(self):
