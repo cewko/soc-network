@@ -1,56 +1,54 @@
 from django import forms
 from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import UserCreationForm
+from django.core.exceptions import ValidationError
 from .models import Profile
-
 
 User = get_user_model()
 
 
-class UserRegistrationForm(forms.ModelForm):
-    password = forms.CharField(
-        label="Password",
-        widget=forms.PasswordInput
-    )
-    password2 = forms.CharField(
-        label="Repeat password",
-        widget=forms.PasswordInput
-    )
+class UserRegistrationForm(UserCreationForm):
+    email = forms.EmailField(required=True)
 
     class Meta:
         model = User
-        fields = ["username", "first_name", "email"]
-
-    def clean_password2(self):
-        cd = self.cleaned_data
-        if cd["password"] != cd["password2"]:
-            raise forms.ValidationError("Passwords don't match.")
-        return cd["password2"]
+        fields = ["username", "first_name", "last_name", "email", "password1", "password2"]
 
     def clean_email(self):
-        data = self.cleaned_data["email"]
-        if User.objects.filter(email=data).exists():
-            raise forms.ValidationError("Email already in use.")
-        return data
+        email = self.cleaned_data.get("email")
+        if User.objects.filter(email=email).exists():
+            raise ValidationError("Email already in use.")
+        return email
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.email = self.cleaned_data["email"]
+        if commit:
+            user.save()
+        return user
 
 
 class UserEditForm(forms.ModelForm):
+    email = forms.EmailField(required=True)
+
     class Meta:
         model = User
         fields = ["first_name", "last_name", "email"]
 
     def clean_email(self):
-        data = self.cleaned_data["email"]
-        qs = User.objects.exclude(
-            id=self.instance.id
-        ).filter(email=data)
-
-        if qs.exists():
+        email = self.cleaned_data["email"]
+        if User.objects.exclude(id=self.instance.id).filter(email=email).exists():
             raise forms.ValidationError("Email already in use.")
-        return data
+        return email
 
 
 class ProfileEditForm(forms.ModelForm):
     class Meta:
         model = Profile
-        fields = ["date_of_birth", "photo"]
+        fields = ['date_of_birth', 'photo', 'biography', 'location']
+        widgets = {
+            'date_of_birth': forms.DateInput(attrs={'type': 'date'}),
+            'biography': forms.Textarea(attrs={'rows': 4}),
+        }
+
         
