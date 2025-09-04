@@ -1,67 +1,223 @@
 {% extends "base.html" %}
 {% load thumbnail %}
 
-{% block title %}{{ user.get_full_name }}{% endblock %}
+{% block title %}
+    {% if user.get_full_name %}
+        {{ user.get_full_name }}
+    {% else %}
+        {{ user.username }}
+    {% endif %}
+{% endblock %}
 
 {% block content %}
-    <h1>{{ user.get_full_name }}</h1>
-    <div class="profile-info">
-        <img src="{% thumbnail user.profile.photo 180x180 %}" class="user-detail">
-    </div>
-    {% with total_followers=user.followers.count %}
-        <span class="count">
-            <span class="total">{{ total_followers }}</span>
-            follower{{ total_followers|pluralize }}
-        </span>
-        <a href="#" data-id="{{ user.id }}" data-action="{% if request.user in user.followers.all %}un{% endif %}follow" class="follow button">
-            {% if request.user not in user.followers.all %}
-                Follow
+<div class="profile-container">
+    <div class="profile-header">
+        <div class="profile-avatar">
+            {% if user.profile.photo %}
+                <img src="{% thumbnail user.profile.photo 200x200 crop='center' %}" 
+                     alt="{{ user.get_full_name }}" 
+                     class="avatar-image">
             {% else %}
-                Unfollow
+                <div class="avatar-placeholder">
+                    <i class="fas fa-user"></i>
+                </div>
             {% endif %}
-        </a>
-        <div id="image-list" class="image-container">
-            {% include "images/image/list_images.html" with images=user.images_created.all %}
         </div>
-    {% endwith %}
+        
+        <div class="profile-details">
+            <h1 class="profile-name">
+                {% if user.get_full_name %}
+                    {{ user.get_full_name }}
+                {% else %}
+                    {{ user.username }}
+                {% endif %}
+            </h1>
+            <p class="profile-username">@{{ user.username }}</p>
+            
+            {% if user.profile.biography %}
+                <p class="profile-bio">{{ user.profile.biography }}</p>
+            {% endif %}
+            
+            <div class="profile-meta">
+                {% if user.profile.location %}
+                    <span class="meta-item">
+                        {{ user.profile.location }}
+                    </span>
+                {% endif %}
+                
+                {% if user.profile.website %}
+                    <span class="meta-item">
+                        <i class="fas fa-link"></i>
+                        <a href="{{ user.profile.website }}" target="_blank" rel="noopener">
+                            {{ user.profile.website|slice:":30" }}{% if user.profile.website|length > 30 %}...{% endif %}
+                        </a>
+                    </span>
+                {% endif %}
+                
+                <span class="meta-item">
+                    Joined {{ user.date_joined|date:"F Y" }}
+                </span>
+                
+                {% if user.profile.date_of_birth %}
+                    <span class="meta-item">
+                        Born {{ user.profile.date_of_birth|date:"F j, Y" }}
+                    </span>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="profile-actions">
+            {% if user != request.user %}
+                <a href="#" 
+                   data-id="{{ user.id }}" 
+                   data-action="{% if request.user in user.followers.all %}un{% endif %}follow" 
+                   class="follow-btn btn {% if request.user in user.followers.all %}btn-outline{% else %}btn-primary{% endif %}">
+                    {% if request.user not in user.followers.all %}
+                        <i class="fas fa-user-plus"></i> Follow
+                    {% else %}
+                        <i class="fas fa-user-check"></i> Following
+                    {% endif %}
+                </a>
+            {% else %}
+                <a href="{% url 'account:edit' %}" class="btn btn-secondary">
+                    <i class="fas fa-edit"></i> Edit Profile
+                </a>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="profile-stats">
+        {% with total_followers=user.followers.count total_following=user.following.count total_images=user.images_created.count %}
+            <div class="stat-item">
+                <span class="stat-number" id="followers-count">{{ total_followers }}</span>
+                <span class="stat-label">Follower{{ total_followers|pluralize }}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number">{{ total_following }}</span>
+                <span class="stat-label">Following</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number">{{ total_images }}</span>
+                <span class="stat-label">Image{{ total_images|pluralize }}</span>
+            </div>
+        {% endwith %}
+    </div>
+    
+    <div class="profile-content">
+        <div class="content-tabs">
+            <button class="tab-btn active" data-tab="images">
+                <i class="fas fa-images"></i> Images
+            </button>
+            <button class="tab-btn" data-tab="activity">
+                <i class="fas fa-clock"></i> Recent Activity
+            </button>
+        </div>
+        
+        <div class="tab-content active" id="images-tab">
+            {% if user.images_created.all %}
+                <div id="image-list" class="image-grid">
+                    {% include "images/image/list_images.html" with images=user.images_created.all %}
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <i class="fas fa-image"></i>
+                    <h3>No images yet</h3>
+                    <p>
+                        {% if user == request.user %}
+                            You haven't bookmarked any images yet.
+                            <a href="{% url 'images:create' %}">Start bookmarking!</a>
+                        {% else %}
+                            {{ user.username }} hasn't shared any images yet.
+                        {% endif %}
+                    </p>
+                </div>
+            {% endif %}
+        </div>
+        
+        <div class="tab-content" id="activity-tab">
+            {% if user.actions.all %}
+                <div class="activity-list">
+                    {% for action in user.actions.all|slice:":10" %}
+                        {% include "actions/action/detail.html" %}
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <i class="fas fa-clock"></i>
+                    <h3>No recent activity</h3>
+                    <p>{{ user.username }} hasn't been active recently.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block domready %}
-    const url = '{% url "user_follow" %}'
-    var options = {
-        method: "POST",
-        headers: {"X-CSRFToken": csrftoken},
-        mode: "same-origin"
-    }
-
-    document.querySelector("a.follow").addEventListener("click", function(e) {
-        e.preventDefault();
-        var followButton = this;
-
-        // add request body
-        var formData = new FormData();
-        formData.append("id", followButton.dataset.id);
-        formData.append("action", followButton.dataset.action);
-        options["body"] = formData;
-
-        // send HTTP request
-        fetch(url, options)
-        .then(response => response.json())
-        .then(data => {
-            if (data["status"] === "ok") {
-                var previousAction = followButton.dataset.action;
-
-                // toggle button text and data-action
-                var action = previousAction === "follow" ? "unfollow" : "follow";
-                followButton.dataset.action = action;
-                followButton.innerHTML = action;
-
-                // update follower count
-                var followerCount = document.querySelector("span.count .total");
-                var totalFollowers = parseInt(followerCount.innerHTML);
-                followerCount.innerHTML = previousAction === "follow" ? totalFollowers + 1 : totalFollowers - 1;
-            }
-        })
+    // Tab switching functionality
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const tabName = this.dataset.tab;
+            
+            // Remove active class from all tabs and content
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            // Add active class to clicked tab and corresponding content
+            this.classList.add('active');
+            document.getElementById(tabName + '-tab').classList.add('active');
+        });
     });
 
+    // Follow/Unfollow functionality
+    const followBtn = document.querySelector('.follow-btn');
+    if (followBtn) {
+        followBtn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            
+            const url = '{% url "account:user_follow" %}';
+            const formData = new FormData();
+            formData.append('id', this.dataset.id);
+            formData.append('action', this.dataset.action);
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrftoken
+                    },
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    const previousAction = this.dataset.action;
+                    const newAction = previousAction === 'follow' ? 'unfollow' : 'follow';
+                    
+                    // Update button
+                    this.dataset.action = newAction;
+                    if (newAction === 'follow') {
+                        this.innerHTML = '<i class="fas fa-user-plus"></i> Follow';
+                        this.className = 'follow-btn btn btn-primary';
+                    } else {
+                        this.innerHTML = '<i class="fas fa-user-check"></i> Following';
+                        this.className = 'follow-btn btn btn-outline';
+                    }
+                    
+                    // Update follower count
+                    const followerCount = document.getElementById('followers-count');
+                    const currentCount = parseInt(followerCount.textContent);
+                    const newCount = previousAction === 'follow' ? currentCount + 1 : currentCount - 1;
+                    followerCount.textContent = newCount;
+                    
+                    // Update stat label
+                    const statLabel = followerCount.nextElementSibling;
+                    statLabel.textContent = `Follower${newCount !== 1 ? 's' : ''}`;
+                }
+            } catch (error) {
+                console.error('Follow action failed:', error);
+            }
+        });
+    }
 {% endblock %}
