@@ -4,27 +4,41 @@ from django.utils import timezone
 from .models import Action
 
 
-def create_action(user, verb, target=None):
-    # check for any similar action made in the last minute
-    now = timezone.now()
-    last_minute = now - datetime.timedelta(seconds=60)
-    similar_actions = Action.objects.filter(
-        user_id=user.id,
-        verb=verb,
-        created__gte=last_minute
-    )
-
-    if target:
-        target_ct = ContentType.objects.get_for_model(target)
-        similar_actions = similar_actions.filter(
-            target_ct=target_ct,
-            target_id=target.id
-        )
+class ActionService:
+    DUPLICATE_THRESHOLD_SECONDS = 60
     
-    if not similar_actions:
-        # no existing actions found
+    @classmethod
+    def create_action(cls, user, verb, target=None):
+        if cls._is_duplicate_action(user, verb, target):
+            return False
+        
         action = Action(user=user, verb=verb, target=target)
         action.save()
         return True
+    
+    @classmethod
+    def _is_duplicate_action(cls, user, verb, target):
+        threshold_time = timezone.now() - datetime.timedelta(
+            seconds=cls.DUPLICATE_THRESHOLD_SECONDS
+        )
+        
+        queryset = Action.objects.filter(
+            user=user,
+            verb=verb,
+            created__gte=threshold_time
+        )
+        
+        if target:
+            target_ct = ContentType.objects.get_for_model(target)
+            queryset = queryset.filter(
+                target_ct=target_ct,
+                target_id=target.id
+            )
+        else:
+            queryset = queryset.filter(target_ct__isnull=True)
+        
+        return queryset.exists()
 
-    return False
+
+def create_action(user, verb, target=None):
+    return ActionService.create_action(user, verb, target)

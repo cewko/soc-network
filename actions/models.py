@@ -4,6 +4,32 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
 
+class ActionQuerySet(models.QuerySet):
+    def for_user(self, user):
+        return self.filter(user=user)
+    
+    def recent(self):
+        return self.order_by('-created')
+    
+    def with_target_type(self, model_class):
+        content_type = ContentType.objects.get_for_model(model_class)
+        return self.filter(target_ct=content_type)
+
+
+class ActionManager(models.Manager):
+    def get_queryset(self):
+        return ActionQuerySet(self.model, using=self._db)
+    
+    def for_user(self, user):
+        return self.get_queryset().for_user(user)
+    
+    def recent(self):
+        return self.get_queryset().recent()
+    
+    def with_target_type(self, model_class):
+        return self.get_queryset().with_target_type(model_class)
+
+
 class Action(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -22,9 +48,15 @@ class Action(models.Model):
     target_id = models.PositiveIntegerField(null=True, blank=True)
     target = GenericForeignKey("target_ct", "target_id")
 
+    objects = ActionManager()
+
     class Meta:
         indexes = [
             models.Index(fields=["-created"]),
-            models.Index(fields=["target_ct", "target_id"])
+            models.Index(fields=["target_ct", "target_id"]),
+            models.Index(fields=["user", "-created"])
         ]
         ordering = ["-created"]
+
+    def __str__(self):
+        return f'{self.user} {self.verb} {self.target or ""}'
