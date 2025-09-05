@@ -1,133 +1,122 @@
-import redis
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render
 from django.http import JsonResponse, HttpResponse
-from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.views.decorators.http import require_POST
+from django.utils.decorators import method_decorator
+from django.views.generic import ListView, DetailView, CreateView
+from django.contrib.auth.mixins import LoginRequiredMixin
+
 from actions.utils import create_action
 from .forms import ImageCreateForm
 from .models import Image
+from .services import ImageViewService, ImageRankingService, ImagePaginationService
 
 
-# connect to redis
-r = redis.Redis(
-    host=settings.REDIS_HOST,
-    port=settings.REDIS_PORT,
-    db=settings.REDIS_DB
-)
-
-
-@login_required
-def image_create(request):
-    if request.method == "POST":
-        # form is sent
-        form = ImageCreateForm(data=request.POST)
-        if form.is_valid():
-            # form data is valid
-            cd = form.cleaned_data
-            new_image = form.save(commit=False)
-            # assign current user to the item
-            new_image.user = request.user
-            new_image.save()
-            create_action(request.user, "bookmarked image", new_image)
-            messages.success(request, "Image added successfully")
-            # redirect to new created item detail view
-            return redirect(new_image.get_absolute_url())
-    else:
-        # build form with data provided by the bookmarklet via GET
-        form = ImageCreateForm(data=request.GET)
+class ImageCreateView(LoginRequiredMixin, CreateView):
+    model = Image
+    form_class = ImageCreateForm
+    template_name = 'images/image/create.html'
     
-    return render(
-        request, "images/image/create.html",
-        {"section": "images", "form": form}
-    )
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        if self.request.method == 'GET':
+            kwargs['data'] = self.request.GET
+        return kwargs
+    
+    def form_valid(self, form):
+        form.instance.user = self.request.user
+        response = super().form_valid(form)
+        create_action(self.request.user, "bookmarked image", self.object)
+        messages.success(self.request, "Image added successfully")
+        return response
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'images'
+        return context
 
 
-@login_required
-def image_ranking(request):
-    # get image ranking dict
-    image_ranking = r.zrange(
-        "image_ranking", 0, -1,
-        desc=True
-    )[:10]
+class ImageDetailView(DetailView):
+    model = Image
+    template_name = 'images/image/detail.html'
+    context_object_name = 'image'
+    slug_field = 'slug'
+    pk_url_kwarg = 'id'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'images'
+        
+        view_service = ImageViewService()
+        context['total_views'] = view_service.record_view(self.object)
+        
+        return context
 
-    image_ranking_ids = [int(id) for id in image_ranking]
 
-    # get most viewed images
-    most_viewed = list(
-        Image.objects.filter(
-            id__in=image_ranking_ids
+class ImageListView(LoginRequiredMixin, ListView):
+    model = Image
+    template_name = 'images/image/list.html'
+    context_object_name = 'images'
+
+    def get_queryset(self):
+        return Image.objects.select_related('user').recent()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        page = self.request.GET.get("page", 1)
+        images_page, is_last_page = ImagePaginationService.paginate_images(
+            self.get_queryset(), page, per_page=8
         )
-    )
-    most_viewed.sort(key=lambda x: image_ranking_ids.index(x.id))
+
+        context['images'] = images_page
+        context['is_last_page'] = is_last_page
+        context['section'] = 'images'
+        return context
+
+
+
+class ImageRankingView(LoginRequiredMixin, ListView):
+    template_name = 'images/image/ranking.html'
+    context_object_name = 'most_viewed'
     
-    return render(
-        request,
-        "images/image/ranking.html",
-        {"section": "images", "most_viewed": most_viewed}
-    )
-
-
-def image_detail(request, id, slug):
-    image = get_object_or_404(Image, id=id, slug=slug)
+    def get_queryset(self):
+        ranking_service = ImageRankingService()
+        return ranking_service.get_most_viewed_images()
     
-    # increment total image views by 1
-    total_views = r.incr(f'image:{image.id}:views')
-    # increment image ranking by 1 (sorted set)
-    r.zincrby("image_ranking", 1, image.id)
-
-    return render(
-        request, "images/image/detail.html",
-        {"section": "images", "image": image, "total_views": total_views}
-    )
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['section'] = 'images'
+        return context
 
 
-@login_required
 @require_POST
+@login_required
 def image_like(request):
     image_id = request.POST.get("id")
     action = request.POST.get("action")
-    if image_id and action:
-        try:
-            image = Image.objects.get(id=image_id)
-            if action == "like":
+    
+    if not image_id or action not in ['like', 'unlike']:
+        return JsonResponse({"status": "error", "message": "Invalid request"})
+
+    try:
+        image = Image.objects.get(id=image_id)
+        
+        if action == "like":
+            if not image.is_liked_by(request.user):
                 image.users_like.add(request.user)
                 create_action(request.user, "liked", image)
-            else:
+        else:
+            if image.is_liked_by(request.user):
                 image.users_like.remove(request.user)
-            return JsonResponse({"status": "ok"})
-        except Image.DoesNotExist:
-            pass
+        
+        return JsonResponse({"status": "ok"})
+    except Image.DoesNotExist:
+        return JsonResponse({"status": "error", "message": "Image not found"})
 
-    return JsonResponse({"error": "error"})
 
-
-@login_required
-def image_list(request):
-    images = Image.objects.all()
-    paginator = Paginator(images, 8)
-    page = request.GET.get("page")
-    images_only = request.GET.get("images_only")
-    try:
-        images = paginator.page(page)
-    except PageNotAnInteger:
-        # if page is not an integer deliver the first page
-        images = paginator.page(1)
-    except EmptyPage:
-        if images_only:
-            # if ajax request and page out of range
-            # return an empty page
-            return HttpResponse("")
-        # if page out of range return last page of results
-        images = paginator.page(paginator.num_pages)
-
-    if images_only:
-        return render(request, 
-        "images/image/list_images.html",
-        {"section": "images", "images": images})
-
-    return render(request, 
-        "images/image/list.html",
-        {"section": "images", "images": images})
+image_create = ImageCreateView.as_view()
+image_detail = ImageDetailView.as_view()
+image_list = ImageListView.as_view()
+image_ranking = ImageRankingView.as_view()
